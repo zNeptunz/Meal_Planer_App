@@ -499,16 +499,27 @@ function normalizeShared(data) {
 }
 
 async function migrateIfNeeded() {
+  // Only migrate if admin AND migration not already done for this code
+  if (!isAdmin) return false;
+  const migrationKey = `fp_migrated_${familyCode}`;
+  if (localStorage.getItem(migrationKey)) return false;
   // Check if family already has data
   const existing = await fbGet(familyPath());
-  if (existing && Array.isArray(existing.dishes) && existing.dishes.length > 0) return false;
+  if (existing && Array.isArray(existing.dishes) && existing.dishes.length > 0) {
+    localStorage.setItem(migrationKey, '1');
+    return false;
+  }
   // Check legacy path for old data
   const legacy = await fbGet(LEGACY_PATH);
-  if (!legacy || !Array.isArray(legacy.dishes) || legacy.dishes.length === 0) return false;
+  if (!legacy || !Array.isArray(legacy.dishes) || legacy.dishes.length === 0) {
+    localStorage.setItem(migrationKey, '1');
+    return false;
+  }
   // Migrate!
   document.getElementById('migration-screen').style.display = 'flex';
   document.getElementById('migration-msg').textContent = `${legacy.dishes.length} Gerichte werden übertragen…`;
   await fbSet(familyPath(), legacy);
+  localStorage.setItem(migrationKey, '1');
   await new Promise(r => setTimeout(r, 800));
   document.getElementById('migration-screen').style.display = 'none';
   return true;
