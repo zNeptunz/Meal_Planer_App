@@ -271,7 +271,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <!-- CREATE FAMILY OVERLAY -->
-<div id="create-family-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center;padding:24px;max-width:520px;margin:0 auto">
+<div id="create-family-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center;padding:24px">
   <div class="pin-box">
     <h2>Familie erstellen</h2>
     <p>Erstelle einen neuen Familienbereich. Du brauchst die Admin-PIN um eine Familie anzulegen.</p>
@@ -496,7 +496,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <script>
 // ===== CONFIG =====
 const ADMIN_PIN = '1234';
-const FB_BASE = 'https://gerichtefamilienplan-default-rtdb.europe-west1.firebasedatabase.app';
+const FB_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'https://gerichtefamilienplan-dev-default-rtdb.europe-west1.firebasedatabase.app'
+  : 'https://gerichtefamilienplan-default-rtdb.europe-west1.firebasedatabase.app';
 const MAX_OPTIONS = 3;
 const LEGACY_PATH = 'familienplan'; // old single-family path
 
