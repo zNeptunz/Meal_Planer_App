@@ -225,6 +225,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .edit-img-preview img{width:56px;height:56px;object-fit:cover}
 .edit-btn-row{display:flex;gap:8px;margin-top:16px}
 
+/* DEV MODE BANNER */
+#dev-banner{display:none;position:fixed;bottom:calc(var(--sb) + 8px);right:12px;background:#7c3aed;color:white;font-size:11px;font-weight:700;padding:5px 12px;border-radius:20px;z-index:9999;letter-spacing:.5px;box-shadow:0 2px 8px rgba(124,58,237,.4)}
+
 /* ADMIN MODE */
 .header.admin-mode{border-bottom:2px solid var(--orange)}
 .header.admin-mode .header-avatar{background:var(--orange-light);color:var(--orange-text)}
@@ -474,6 +477,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <div id="toast"></div>
+<div id="dev-banner">⚡ DEV</div>
 
 <!-- IN-APP ADMIN PIN -->
 <div id="inapp-admin-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center;padding:24px">
@@ -1317,6 +1321,11 @@ const savedName = localStorage.getItem('fp_username');
 const savedCode = localStorage.getItem('fp_familycode');
 if (savedName) document.getElementById('name-input').value = savedName;
 if (savedCode) document.getElementById('family-code-input').value = savedCode;
+
+// Show DEV banner if on localhost
+if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  document.getElementById('dev-banner').style.display = 'block';
+}
 
 // Swipe to close sheet
 document.querySelectorAll('.sheet').forEach(s => {
