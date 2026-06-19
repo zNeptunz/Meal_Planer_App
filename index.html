@@ -390,8 +390,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         Noch keine Gerichte
       </div>
     </div>
-    <div id="dishes-member" style="display:none;padding:32px 16px;text-align:center;color:var(--text-muted);font-size:14px">
-      Gerichte werden vom Admin verwaltet.
+    <div id="dishes-member" style="display:none">
+      <div id="dish-grid-member" class="dish-grid"></div>
+      <div id="dishes-empty-member" class="empty" style="display:none">
+        <svg viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zM6 1v3M10 1v3M14 1v3" stroke-linecap="round"/></svg>
+        Noch keine Gerichte
+      </div>
     </div>
   </div>
 </div>
@@ -575,13 +579,25 @@ async function migrateIfNeeded() {
 }
 
 async function loadShared() {
+  // Load from localStorage cache first for instant startup
+  try {
+    const cached = localStorage.getItem('fp_cache_' + familyCode);
+    if (cached) normalizeShared(JSON.parse(cached));
+  } catch(e) {}
+  // Then fetch from Firebase in background
   try {
     const data = await fbGet(familyPath());
-    if (data) normalizeShared(data);
-  } catch(e) { toast('Offline – keine Verbindung'); }
+    if (data) {
+      normalizeShared(data);
+      localStorage.setItem('fp_cache_' + familyCode, JSON.stringify(data));
+    }
+  } catch(e) { toast('Offline – zeige gespeicherte Daten'); }
 }
 async function saveShared() {
-  try { await fbSet(familyPath(), shared); }
+  try {
+    await fbSet(familyPath(), shared);
+    localStorage.setItem('fp_cache_' + familyCode, JSON.stringify(shared));
+  }
   catch(e) { toast('Fehler beim Speichern'); }
 }
 
@@ -680,11 +696,33 @@ function switchResultWeek(w) {
 function renderAll() { renderWeek(); renderResults(); renderDishes(); renderWishes(); }
 
 // ===== DISHES =====
-function previewImg(inp) {
+function compressImage(file, maxSize=400, quality=0.75) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w > h && w > maxSize) { h = Math.round(h * maxSize / w); w = maxSize; }
+        else if (h > maxSize) { w = Math.round(w * maxSize / h); h = maxSize; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function previewImg(inp) {
   const file = inp.files[0]; if (!file) return;
-  const r = new FileReader();
-  r.onload = e => { pendingImg = e.target.result; document.getElementById('img-preview').style.display='block'; document.getElementById('preview-img').src=pendingImg; document.getElementById('img-btn-lbl').textContent='Foto gewählt ✓'; };
-  r.readAsDataURL(file);
+  document.getElementById('img-btn-lbl').textContent = 'Wird komprimiert…';
+  pendingImg = await compressImage(file);
+  document.getElementById('img-preview').style.display='block';
+  document.getElementById('preview-img').src=pendingImg;
+  document.getElementById('img-btn-lbl').textContent='Foto gewählt ✓';
 }
 async function addDish() {
   const inp = document.getElementById('dish-name-inp');
@@ -708,19 +746,30 @@ async function deleteDish(id) {
   await saveShared(); renderAll();
 }
 function renderDishes() {
-  const grid = document.getElementById('dish-grid');
-  const empty = document.getElementById('dishes-empty');
   document.getElementById('dish-count').textContent = shared.dishes.length || '';
-  if (!isAdmin) return;
-  if (!shared.dishes.length) { grid.innerHTML=''; empty.style.display='block'; return; }
-  empty.style.display = 'none';
-  grid.innerHTML = shared.dishes.map(d => `
-    <div class="dish-card">
-      <div class="dish-thumb">${d.img ? `<img src="${d.img}" alt="${esc(d.name)}">` : pIcon(28)}</div>
-      <div class="dish-name">${esc(d.name)}</div>
-      <button class="del-btn" onclick="deleteDish(${d.id})"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg></button>
-      <button class="edit-btn-card" onclick="openEdit(${d.id})"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z" stroke-linecap="round"/></svg></button>
-    </div>`).join('');
+  if (isAdmin) {
+    const grid = document.getElementById('dish-grid');
+    const empty = document.getElementById('dishes-empty');
+    if (!shared.dishes.length) { grid.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display = 'none';
+    grid.innerHTML = shared.dishes.map(d => `
+      <div class="dish-card">
+        <div class="dish-thumb">${d.img ? `<img src="${d.img}" alt="${esc(d.name)}">` : pIcon(28)}</div>
+        <div class="dish-name">${esc(d.name)}</div>
+        <button class="del-btn" onclick="deleteDish(${d.id})"><svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg></button>
+        <button class="edit-btn-card" onclick="openEdit(${d.id})"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z" stroke-linecap="round"/></svg></button>
+      </div>`).join('');
+  } else {
+    const grid = document.getElementById('dish-grid-member');
+    const empty = document.getElementById('dishes-empty-member');
+    if (!shared.dishes.length) { grid.innerHTML=''; empty.style.display='block'; return; }
+    empty.style.display = 'none';
+    grid.innerHTML = shared.dishes.map(d => `
+      <div class="dish-card">
+        <div class="dish-thumb">${d.img ? `<img src="${d.img}" alt="${esc(d.name)}">` : pIcon(28)}</div>
+        <div class="dish-name">${esc(d.name)}</div>
+      </div>`).join('');
+  }
 }
 
 // ===== WEEK =====
@@ -771,7 +820,7 @@ function renderWeek() {
     let html = '';
     if (totalOptions === 0) {
       html = `<div style="background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:20px 18px;text-align:center;margin-bottom:12px">
-        <div style="font-size:28px;margin-bottom:10px"></div>
+        <div style="font-size:28px;margin-bottom:10px">👨‍🍳</div>
         <p style="font-size:15px;font-weight:600;margin-bottom:6px">Der Admin plant noch die Woche</p>
         <p style="font-size:13px;color:var(--text-muted)">Sobald Gerichte zur Abstimmung stehen, kannst du hier abstimmen. Du kannst aber schon jetzt Wünsche über den Wünsche-Tab senden.</p>
       </div>`;
@@ -1086,16 +1135,13 @@ function openEdit(id) {
   document.body.style.overflow = 'hidden';
   setTimeout(() => document.getElementById('edit-name-inp').focus(), 250);
 }
-function editPreviewImg(inp) {
+async function editPreviewImg(inp) {
   const file = inp.files[0]; if (!file) return;
-  const r = new FileReader();
-  r.onload = e => {
-    editPendingImg = e.target.result;
-    document.getElementById('edit-img-preview').innerHTML = `<img src="${editPendingImg}" alt="" style="width:56px;height:56px;object-fit:cover">`;
-    document.getElementById('edit-img-lbl').textContent = 'Foto ändern';
-    document.getElementById('edit-remove-img-btn').style.display = 'flex';
-  };
-  r.readAsDataURL(file);
+  document.getElementById('edit-img-lbl').textContent = 'Wird komprimiert…';
+  editPendingImg = await compressImage(file);
+  document.getElementById('edit-img-preview').innerHTML = `<img src="${editPendingImg}" alt="" style="width:56px;height:56px;object-fit:cover">`;
+  document.getElementById('edit-img-lbl').textContent = 'Foto ändern';
+  document.getElementById('edit-remove-img-btn').style.display = 'flex';
 }
 function removeEditImg() {
   editPendingImg = null;
