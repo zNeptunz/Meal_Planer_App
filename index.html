@@ -264,7 +264,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <span style="font-size:12px;color:var(--orange-text);font-weight:500;flex:1">Admin-Login aktiv</span>
     <button onclick="disableAdminLogin()" style="background:none;border:none;color:var(--orange-text);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;padding:0">Deaktivieren</button>
   </div>
-  <p class="admin-hint" id="admin-hint-normal">Du bist der Admin? <button class="admin-link" onclick="showAdminPin()">Admin-Bereich öffnen</button></p>
+  <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;width:100%">
+    <p class="admin-hint" id="admin-hint-normal" style="text-align:center">Du bist der Admin? <button class="admin-link" onclick="showAdminPin()">Admin-Bereich öffnen</button></p>
+    <p class="admin-hint" style="text-align:center">Neue Familie? <button class="admin-link" onclick="showCreateFamily()">Familie erstellen</button></p>
+  </div>
+</div>
+
+<!-- CREATE FAMILY OVERLAY -->
+<div id="create-family-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center;padding:24px;max-width:520px;margin:0 auto">
+  <div class="pin-box">
+    <h2>Familie erstellen</h2>
+    <p>Erstelle einen neuen Familienbereich. Du brauchst die Admin-PIN um eine Familie anzulegen.</p>
+    <p id="create-family-error" style="display:none;color:var(--red);font-size:13px;margin-bottom:8px"></p>
+    <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Familiencode</label>
+    <input type="text" id="create-family-code" placeholder="z.B. familie-mueller" maxlength="40" style="width:100%;padding:11px 13px;font-size:15px;border:0.5px solid var(--border-md);border-radius:var(--r-sm);background:var(--bg);color:var(--text);outline:none;margin-bottom:12px" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+    <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px">Admin-PIN</label>
+    <input type="password" id="create-family-pin" placeholder="PIN" maxlength="6" style="width:100%;padding:11px 13px;font-size:15px;border:0.5px solid var(--border-md);border-radius:var(--r-sm);background:var(--bg);color:var(--text);outline:none;margin-bottom:12px" onkeydown="if(event.key==='Enter')confirmCreateFamily()">
+    <div class="pin-row">
+      <button class="btn-sec" onclick="closeCreateFamily()">Abbrechen</button>
+      <button class="btn-primary" style="flex:1" onclick="confirmCreateFamily()">Erstellen</button>
+    </div>
+  </div>
 </div>
 
 <!-- MIGRATION SCREEN -->
@@ -612,6 +632,46 @@ function enterApp() {
   localStorage.setItem('fp_familycode', c);
   startApp();
 }
+function showCreateFamily() {
+  document.getElementById('create-family-overlay').style.display = 'flex';
+  document.getElementById('create-family-code').value = document.getElementById('family-code-input').value || '';
+  document.getElementById('create-family-pin').value = '';
+  document.getElementById('create-family-error').style.display = 'none';
+  setTimeout(() => document.getElementById('create-family-code').focus(), 100);
+}
+function closeCreateFamily() {
+  document.getElementById('create-family-overlay').style.display = 'none';
+}
+async function confirmCreateFamily() {
+  const code = document.getElementById('create-family-code').value.trim();
+  const pin = document.getElementById('create-family-pin').value;
+  const errEl = document.getElementById('create-family-error');
+  if (!code) { errEl.textContent = 'Bitte einen Familiencode eingeben.'; errEl.style.display='block'; return; }
+  if (pin !== ADMIN_PIN) { errEl.textContent = 'Falsche PIN.'; errEl.style.display='block'; document.getElementById('create-family-pin').value=''; return; }
+  // Check if code already exists
+  errEl.textContent = 'Prüfe ob Code verfügbar…'; errEl.style.display='block'; errEl.style.color='var(--text-muted)';
+  try {
+    const existing = await fbGet(`families/${code}/data`);
+    if (existing && Array.isArray(existing.dishes) && existing.dishes.length > 0) {
+      errEl.textContent = 'Dieser Code existiert bereits. Wähle einen anderen.'; errEl.style.color='var(--red)'; errEl.style.display='block'; return;
+    }
+    // Create empty family
+    await fbSet(`families/${code}/data`, { dishes:[], weeks:{}, votes:{}, wishes:[] });
+    closeCreateFamily();
+    // Pre-fill the code in splash
+    document.getElementById('family-code-input').value = code;
+    isAdmin = true;
+    familyCode = code;
+    localStorage.setItem('fp_familycode', code);
+    localStorage.setItem('fp_username', document.getElementById('name-input').value.trim() || 'Admin');
+    userName = document.getElementById('name-input').value.trim() || 'Admin';
+    toast('Familie "' + code + '" erstellt ✓');
+    await startApp();
+  } catch(e) {
+    errEl.textContent = 'Fehler beim Erstellen. Internetverbindung prüfen.'; errEl.style.color='var(--red)'; errEl.style.display='block';
+  }
+}
+
 function showAdminPin() {
   document.getElementById('admin-overlay').classList.add('open');
   document.getElementById('pin-input').focus();
@@ -652,6 +712,32 @@ function checkPin() {
 }
 async function startApp() {
   document.getElementById('splash').style.display = 'none';
+
+  // Check if family code exists — only admin can create new ones
+  if (!isAdmin) {
+    try {
+      const cached = localStorage.getItem('fp_cache_' + familyCode);
+      if (!cached) {
+        // No local cache — check Firebase
+        const existing = await fbGet(familyPath());
+        if (!existing || !Array.isArray(existing.dishes)) {
+          // Code doesn't exist
+          document.getElementById('splash').style.display = 'flex';
+          toast('Familiencode nicht gefunden. Frag deinen Admin.');
+          return;
+        }
+      }
+    } catch(e) {
+      // Offline — allow if cached
+      const cached = localStorage.getItem('fp_cache_' + familyCode);
+      if (!cached) {
+        document.getElementById('splash').style.display = 'flex';
+        toast('Keine Verbindung und kein gespeicherter Code gefunden.');
+        return;
+      }
+    }
+  }
+
   await migrateIfNeeded();
   document.getElementById('app').style.display = 'block';
   document.getElementById('user-avatar').textContent = userName[0].toUpperCase();
