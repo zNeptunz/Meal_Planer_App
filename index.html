@@ -244,10 +244,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <svg viewBox="0 0 24 24" fill="white"><path d="M11 3a1 1 0 10-2 0v1a1 1 0 102 0V3zM15.657 5.757a1 1 0 00-1.414-1.414l-.707.707a1 1 0 001.414 1.414l.707-.707zM18 10a1 1 0 01-1 1h-1a1 1 0 110-2h1a1 1 0 011 1zM5.05 6.464A1 1 0 106.464 5.05l-.707-.707a1 1 0 00-1.414 1.414l.707.707zM5 10a1 1 0 01-1 1H3a1 1 0 110-2h1a1 1 0 011 1zM8 16v-1h4v1a2 2 0 11-4 0zM12 14c.015-.34.208-.646.477-.859a4 4 0 10-4.954 0c.27.213.462.519.476.859h4.001z"/></svg>
   </div>
   <h1>Familienplan</h1>
-  <p>Plane die Woche gemeinsam.<br>Gib deinen Namen ein um zu starten.</p>
-  <input type="text" id="name-input" placeholder="Dein Name (z.B. Mama)" maxlength="20" onkeydown="if(event.key==='Enter')enterApp()">
+  <p>Plane die Woche gemeinsam.<br>Gib deinen Namen und den Familiencode ein.</p>
+  <input type="text" id="name-input" placeholder="Dein Name (z.B. Mama)" maxlength="20" onkeydown="if(event.key==='Enter')document.getElementById('family-code-input').focus()">
+  <input type="text" id="family-code-input" placeholder="Familiencode (z.B. familie-mueller)" maxlength="40" onkeydown="if(event.key==='Enter')enterApp()" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+  <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;text-align:left">Nur Buchstaben, Zahlen und Bindestriche. Teile den Code mit deiner Familie.</p>
   <button class="btn-primary" onclick="enterApp()">Loslegen</button>
   <p class="admin-hint">Du bist der Admin? <button class="admin-link" onclick="showAdminPin()">Admin-Bereich öffnen</button></p>
+</div>
+
+<!-- MIGRATION SCREEN -->
+<div id="migration-screen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:998;flex-direction:column;align-items:center;justify-content:center;padding:32px;max-width:520px;margin:0 auto">
+  <div class="spinner" style="width:32px;height:32px;margin-bottom:20px"></div>
+  <p style="font-size:16px;font-weight:600;margin-bottom:8px">Daten werden übertragen&#8230;</p>
+  <p id="migration-msg" style="font-size:14px;color:var(--text-muted);text-align:center">Bestehende Gerichte werden in deinen Familienbereich kopiert.</p>
 </div>
 
 <!-- ADMIN PIN -->
@@ -426,9 +435,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 const ADMIN_PIN = '1234';
 const FB_BASE = 'https://gerichtefamilienplan-default-rtdb.europe-west1.firebasedatabase.app';
 const MAX_OPTIONS = 3;
+const LEGACY_PATH = 'familienplan'; // old single-family path
 
 // ===== STATE =====
 let userName = '', isAdmin = false;
+let familyCode = '';
 let pickerDay = -1, pickerWeekKey = '';
 let pendingImg = null;
 let editingId = null, editPendingImg = undefined;
@@ -464,6 +475,8 @@ function ensureWeek(key) {
 }
 
 // ===== FIREBASE =====
+function familyPath() { return `families/${familyCode}/data`; }
+
 async function fbGet(path) {
   const r = await fetch(`${FB_BASE}/${path}.json`);
   return r.ok ? r.json() : null;
@@ -472,26 +485,43 @@ async function fbSet(path, val) {
   await fetch(`${FB_BASE}/${path}.json`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(val) });
 }
 
+function normalizeShared(data) {
+  shared.dishes = Array.isArray(data.dishes) ? data.dishes : [];
+  shared.weeks = (data.weeks && typeof data.weeks === 'object') ? data.weeks : {};
+  shared.votes = (data.votes && typeof data.votes === 'object') ? data.votes : {};
+  shared.wishes = Array.isArray(data.wishes) ? data.wishes : [];
+  Object.keys(shared.weeks).forEach(k => {
+    const w = shared.weeks[k];
+    if (!Array.isArray(w.days) || w.days.length !== 7)
+      w.days = Array(7).fill(null).map(() => ({options:[],final:null}));
+    else w.days = w.days.map(d => d && typeof d === 'object' ? {options:Array.isArray(d.options)?d.options:[],final:d.final??null} : {options:[],final:null});
+  });
+}
+
+async function migrateIfNeeded() {
+  // Check if family already has data
+  const existing = await fbGet(familyPath());
+  if (existing && Array.isArray(existing.dishes) && existing.dishes.length > 0) return false;
+  // Check legacy path for old data
+  const legacy = await fbGet(LEGACY_PATH);
+  if (!legacy || !Array.isArray(legacy.dishes) || legacy.dishes.length === 0) return false;
+  // Migrate!
+  document.getElementById('migration-screen').style.display = 'flex';
+  document.getElementById('migration-msg').textContent = `${legacy.dishes.length} Gerichte werden übertragen…`;
+  await fbSet(familyPath(), legacy);
+  await new Promise(r => setTimeout(r, 800));
+  document.getElementById('migration-screen').style.display = 'none';
+  return true;
+}
+
 async function loadShared() {
   try {
-    const data = await fbGet('familienplan');
-    if (data) {
-      shared.dishes = Array.isArray(data.dishes) ? data.dishes : [];
-      shared.weeks = (data.weeks && typeof data.weeks === 'object') ? data.weeks : {};
-      shared.votes = (data.votes && typeof data.votes === 'object') ? data.votes : {};
-      shared.wishes = Array.isArray(data.wishes) ? data.wishes : [];
-      // normalize weeks
-      Object.keys(shared.weeks).forEach(k => {
-        const w = shared.weeks[k];
-        if (!Array.isArray(w.days) || w.days.length !== 7)
-          w.days = Array(7).fill(null).map(() => ({options:[],final:null}));
-        else w.days = w.days.map(d => d && typeof d === 'object' ? {options:Array.isArray(d.options)?d.options:[],final:d.final??null} : {options:[],final:null});
-      });
-    }
+    const data = await fbGet(familyPath());
+    if (data) normalizeShared(data);
   } catch(e) { toast('Offline – keine Verbindung'); }
 }
 async function saveShared() {
-  try { await fbSet('familienplan', shared); }
+  try { await fbSet(familyPath(), shared); }
   catch(e) { toast('Fehler beim Speichern'); }
 }
 
@@ -499,7 +529,12 @@ async function saveShared() {
 function enterApp() {
   const n = document.getElementById('name-input').value.trim();
   if (!n) { document.getElementById('name-input').focus(); return; }
-  userName = n; localStorage.setItem('fp_username', n); startApp();
+  const c = document.getElementById('family-code-input').value.trim();
+  if (!c) { document.getElementById('family-code-input').focus(); return; }
+  userName = n; familyCode = c;
+  localStorage.setItem('fp_username', n);
+  localStorage.setItem('fp_familycode', c);
+  startApp();
 }
 function showAdminPin() {
   document.getElementById('admin-overlay').classList.add('open');
@@ -509,10 +544,14 @@ function showAdminPin() {
 function closeAdminPin() { document.getElementById('admin-overlay').classList.remove('open'); document.getElementById('pin-input').value=''; }
 function checkPin() {
   const p = document.getElementById('pin-input').value;
+  const c = document.getElementById('family-code-input').value.trim();
+  if (!c) { closeAdminPin(); document.getElementById('family-code-input').focus(); toast('Bitte Familiencode eingeben'); return; }
   if (p === ADMIN_PIN) {
     isAdmin = true; closeAdminPin();
     userName = document.getElementById('name-input').value.trim() || 'Admin';
+    familyCode = c;
     localStorage.setItem('fp_username', userName);
+    localStorage.setItem('fp_familycode', c);
     startApp();
   } else {
     document.getElementById('pin-error').style.display = 'block';
@@ -522,6 +561,7 @@ function checkPin() {
 }
 async function startApp() {
   document.getElementById('splash').style.display = 'none';
+  await migrateIfNeeded();
   document.getElementById('app').style.display = 'block';
   document.getElementById('user-avatar').textContent = userName[0].toUpperCase();
   document.getElementById('user-name-display').childNodes[0].textContent = userName + ' ';
@@ -1003,7 +1043,9 @@ function overlayBg(e, id) { if (e.target===document.getElementById(id)) { docume
 
 // ===== INIT =====
 const savedName = localStorage.getItem('fp_username');
+const savedCode = localStorage.getItem('fp_familycode');
 if (savedName) document.getElementById('name-input').value = savedName;
+if (savedCode) document.getElementById('family-code-input').value = savedCode;
 
 // Swipe to close sheet
 document.querySelectorAll('.sheet').forEach(s => {
