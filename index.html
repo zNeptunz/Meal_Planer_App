@@ -225,6 +225,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .edit-img-preview img{width:56px;height:56px;object-fit:cover}
 .edit-btn-row{display:flex;gap:8px;margin-top:16px}
 
+/* ADMIN MODE */
+.header.admin-mode{border-bottom:2px solid var(--orange)}
+.header.admin-mode .header-avatar{background:var(--orange-light);color:var(--orange-text)}
+.admin-mode-bar{display:none;background:var(--orange-light);border-bottom:0.5px solid var(--orange);padding:6px 16px;font-size:12px;color:var(--orange-text);font-weight:500;align-items:center;gap:6px;position:sticky;top:calc(var(--st) + 66px);z-index:45}
+.admin-mode-bar.show{display:flex}
+.admin-mode-bar svg{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;flex-shrink:0}
+
 /* MISC */
 .empty{text-align:center;padding:40px 16px;color:var(--text-muted)}
 .empty svg{width:44px;height:44px;stroke:var(--text-hint);stroke-width:1.2;fill:none;margin-bottom:10px;display:block;margin:0 auto 10px}
@@ -250,9 +257,14 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <p>Plane die Woche gemeinsam.<br>Gib deinen Namen und den Familiencode ein.</p>
   <input type="text" id="name-input" placeholder="Dein Name (z.B. Mama)" maxlength="20" onkeydown="if(event.key==='Enter')document.getElementById('family-code-input').focus()">
   <input type="text" id="family-code-input" placeholder="Familiencode (z.B. familie-mueller)" maxlength="40" onkeydown="if(event.key==='Enter')enterApp()" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
-  <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;text-align:left">Nur Buchstaben, Zahlen und Bindestriche. Teile den Code mit deiner Familie.</p>
+  <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;text-align:left">Nur Buchstaben, Zahlen und Bindestriche — kein Groß-/Kleinschreibung. Teile diesen Code mit deiner Familie damit alle denselben Bereich nutzen.</p>
   <button class="btn-primary" onclick="enterApp()">Loslegen</button>
-  <p class="admin-hint">Du bist der Admin? <button class="admin-link" onclick="showAdminPin()">Admin-Bereich öffnen</button></p>
+  <div id="admin-warning" style="display:none;margin-top:16px;background:var(--orange-light);border:0.5px solid var(--orange);border-radius:var(--r-sm);padding:10px 14px;align-items:center;gap:8px">
+    <svg width="15" height="15" viewBox="0 0 24 24" stroke="var(--orange)" stroke-width="2.5" fill="none" style="flex-shrink:0"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round"/></svg>
+    <span style="font-size:12px;color:var(--orange-text);font-weight:500;flex:1">Admin-Login aktiv</span>
+    <button onclick="disableAdminLogin()" style="background:none;border:none;color:var(--orange-text);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;padding:0">Deaktivieren</button>
+  </div>
+  <p class="admin-hint" id="admin-hint-normal">Du bist der Admin? <button class="admin-link" onclick="showAdminPin()">Admin-Bereich öffnen</button></p>
 </div>
 
 <!-- MIGRATION SCREEN -->
@@ -289,6 +301,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <svg viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
+  </div>
+
+  <div class="admin-mode-bar" id="admin-mode-bar">
+    <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span style="flex:1">Admin-Modus aktiv</span>
+    <button onclick="adminLogout()" style="background:none;border:0.5px solid var(--orange);border-radius:12px;color:var(--orange-text);font-size:11px;font-weight:600;padding:3px 10px;cursor:pointer">Abmelden</button>
   </div>
 
   <div class="tabs">
@@ -503,6 +521,16 @@ function normalizeShared(data) {
       w.days = Array(7).fill(null).map(() => ({options:[],final:null}));
     else w.days = w.days.map(d => d && typeof d === 'object' ? {options:Array.isArray(d.options)?d.options:[],final:d.final??null} : {options:[],final:null});
   });
+  // Prune orphan votes: remove any vote key whose dish is no longer an option for that day
+  const validKeys = new Set();
+  Object.keys(shared.weeks).forEach(wk => {
+    shared.weeks[wk].days.forEach((day, i) => {
+      (day.options||[]).forEach(id => validKeys.add(`${wk}_${i}_${id}`));
+    });
+  });
+  Object.keys(shared.votes).forEach(k => {
+    if (!validKeys.has(k)) delete shared.votes[k];
+  });
 }
 
 async function migrateIfNeeded() {
@@ -558,8 +586,23 @@ function showAdminPin() {
   document.getElementById('admin-overlay').classList.add('open');
   document.getElementById('pin-input').focus();
   document.getElementById('pin-error').style.display = 'none';
+  document.getElementById('admin-warning').style.display = 'flex';
+  document.getElementById('admin-hint-normal').style.display = 'none';
 }
-function closeAdminPin() { document.getElementById('admin-overlay').classList.remove('open'); document.getElementById('pin-input').value=''; }
+function disableAdminLogin() {
+  // close pin dialog if open
+  document.getElementById('admin-overlay').classList.remove('open');
+  document.getElementById('pin-input').value = '';
+  document.getElementById('pin-error').style.display = 'none';
+  // hide warning, show normal hint
+  document.getElementById('admin-warning').style.display = 'none';
+  document.getElementById('admin-hint-normal').style.display = 'block';
+}
+function closeAdminPin() {
+  document.getElementById('admin-overlay').classList.remove('open');
+  document.getElementById('pin-input').value='';
+  // keep warning visible so user knows admin mode is still selected
+}
 function checkPin() {
   const p = document.getElementById('pin-input').value;
   const c = document.getElementById('family-code-input').value.trim();
@@ -584,6 +627,11 @@ async function startApp() {
   document.getElementById('user-avatar').textContent = userName[0].toUpperCase();
   document.getElementById('user-name-display').childNodes[0].textContent = userName + ' ';
   document.getElementById('admin-badge').style.display = isAdmin ? 'inline' : 'none';
+  if (isAdmin) {
+    document.querySelector('.header').classList.add('admin-mode');
+    document.getElementById('admin-mode-bar').classList.add('show');
+    document.querySelector('.tabs').style.top = 'calc(var(--st) + 66px + 29px)';
+  }
   document.getElementById('dishes-admin').style.display = isAdmin ? 'block' : 'none';
   document.getElementById('dishes-member').style.display = isAdmin ? 'none' : 'block';
   document.getElementById('wishes-member').style.display = isAdmin ? 'none' : 'block';
@@ -705,11 +753,21 @@ function renderWeek() {
     });
     el.innerHTML = html;
   } else {
+    const totalOptions = weekData.days.reduce((sum, d) => sum + (d.options||[]).length, 0);
     let html = '';
+    if (totalOptions === 0) {
+      html = `<div style="background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:20px 18px;text-align:center;margin-bottom:12px">
+        <div style="font-size:28px;margin-bottom:10px"></div>
+        <p style="font-size:15px;font-weight:600;margin-bottom:6px">Der Admin plant noch die Woche</p>
+        <p style="font-size:13px;color:var(--text-muted)">Sobald Gerichte zur Abstimmung stehen, kannst du hier abstimmen. Du kannst aber schon jetzt Wünsche über den Wünsche-Tab senden.</p>
+      </div>`;
+    }
     weekData.days.forEach((day, i) => {
       const options = (day.options||[]).map(id=>shared.dishes.find(d=>d.id===id)).filter(Boolean);
       const final = day.final != null ? shared.dishes.find(d=>d.id===day.final) : null;
       const voteData = getVotesForDay(wk, i, options.map(o=>o.id));
+      // Skip days with no options and no final when whole week is empty — already shown above
+      if (totalOptions === 0 && !final) return;
       html += `<div class="day-row">
         <div class="day-header">
           <div class="day-chip">${DAYS_S[i]}</div>
@@ -720,7 +778,7 @@ function renderWeek() {
         </div>
         ${final ? `<div class="final-set-banner">✓ Festgelegt: ${esc(final.name)}</div>` : ''}
         ${!final && options.length ? renderVoteButtons(wk, i, voteData, options) : ''}
-        ${!final && !options.length ? `<div class="votes-area"><span class="no-options-hint">Der Admin hat noch keine Optionen festgelegt.</span></div>` : ''}
+        ${!final && !options.length ? `<div class="votes-area"><span class="no-options-hint">Noch keine Optionen für diesen Tag.</span></div>` : ''}
       </div>`;
     });
     el.innerHTML = html;
@@ -790,12 +848,15 @@ async function randomFill() {
   if (shared.dishes.length < 1) { toast('Keine Gerichte vorhanden'); return; }
   const wk = activeWeekKey();
   ensureWeek(wk);
-  const pool = [...shared.dishes].sort(() => Math.random() - .5);
-  shared.weeks[wk].days = shared.weeks[wk].days.map((day, i) => {
+  // Check if any day already has votes
+  const hasVotes = Object.keys(shared.votes).some(k => k.startsWith(wk+'_'));
+  const hasOptions = shared.weeks[wk].days.some(d => (d.options||[]).length > 0);
+  if ((hasVotes || hasOptions) && !confirm('Woche bereits befüllt. Alles überschreiben inkl. vorhandener Stimmen?')) return;
+  shared.weeks[wk].days = shared.weeks[wk].days.map(() => {
     const shuffled = [...shared.dishes].sort(() => Math.random() - .5);
     return { options: shuffled.slice(0, MAX_OPTIONS).map(d => d.id), final: null };
   });
-  // clear votes for this week
+  // clear all votes for this week
   Object.keys(shared.votes).forEach(k => { if (k.startsWith(wk+'_')) delete shared.votes[k]; });
   await saveShared(); renderWeek(); toast('Zufällig befüllt ✓');
 }
@@ -1058,6 +1119,13 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 2200);
 }
 function overlayBg(e, id) { if (e.target===document.getElementById(id)) { document.getElementById(id).classList.remove('open'); document.body.style.overflow=''; } }
+
+// ===== ADMIN LOGOUT =====
+function adminLogout() {
+  isAdmin = false;
+  localStorage.removeItem('fp_admin');
+  window.location.reload();
+}
 
 // ===== INIT =====
 const savedName = localStorage.getItem('fp_username');
