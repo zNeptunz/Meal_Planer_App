@@ -191,6 +191,20 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .btn-cancel{margin-top:8px;padding:13px;border:0.5px solid var(--border-md);border-radius:var(--r-sm);background:none;color:var(--red);font-size:15px;font-weight:500;cursor:pointer;transition:background .12s;width:100%}
 .btn-cancel:active{background:var(--red-light)}
 
+/* ---- OPTION CHIPS (admin day view) ---- */
+.options-area{padding:0 14px 12px;display:flex;flex-wrap:wrap;gap:7px}
+.option-chip{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 6px;border:0.5px solid var(--border-md);border-radius:20px;background:var(--surface2);font-size:13px;color:var(--text)}
+.option-chip.final{border-color:var(--green);background:var(--green-light);color:var(--green-text)}
+.option-chip-thumb{width:22px;height:22px;border-radius:50%;overflow:hidden;background:var(--surface);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.option-chip-thumb img{width:22px;height:22px;object-fit:cover}
+.option-vote-count{font-size:11px;font-weight:700;background:var(--green-light);color:var(--green-text);padding:1px 5px;border-radius:10px}
+.option-final-badge{font-size:12px;color:var(--green-text);font-weight:700}
+.option-set-final{border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:14px;padding:0 2px;opacity:0.5;transition:opacity .12s}
+.option-set-final:hover{opacity:1;color:var(--green)}
+.option-remove{border:none;background:none;color:var(--text-hint);cursor:pointer;font-size:16px;padding:0 2px;line-height:1;transition:color .12s}
+.option-remove:hover{color:var(--red)}
+.vote-thumb{flex-shrink:0;display:flex;align-items:center;justify-content:center}
+
 /* ---- EDIT DISH SHEET ---- */
 #edit-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:300;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
 #edit-overlay.open{display:flex}
@@ -371,9 +385,9 @@ let isAdmin = false;
 let pickerDay = -1;
 let pendingImg = null;
 
-// Shared data structure:
-// { dishes: [{id,name,img}], week: [null|id, ...7], votes: { "dayIdx_dishId": [names] } }
-let shared = { dishes: [], week: Array(7).fill(null), votes: {} };
+// Shared data:
+// { dishes: [{id,name,img}], week: [{options:[id,...], final:null|id}, ...7], votes: { "dayIdx_dishId": [names] } }
+let shared = { dishes: [], week: Array(7).fill(null).map(() => ({options:[], final:null})), votes: {} };
 
 const DAYS = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
 const DAYS_S = ['Mo','Di','Mi','Do','Fr','Sa','So'];
@@ -385,9 +399,16 @@ async function loadShared() {
     if (res.ok) {
       const data = await res.json();
       if (data) shared = data;
-      // ensure arrays are correct
       if (!Array.isArray(shared.dishes)) shared.dishes = [];
-      if (!Array.isArray(shared.week) || shared.week.length !== 7) shared.week = Array(7).fill(null);
+      // normalize week to new structure
+      if (!Array.isArray(shared.week) || shared.week.length !== 7) {
+        shared.week = Array(7).fill(null).map(() => ({options:[], final:null}));
+      } else {
+        shared.week = shared.week.map(w => {
+          if (!w || typeof w !== 'object') return {options:[], final:null};
+          return {options: Array.isArray(w.options) ? w.options : [], final: w.final ?? null};
+        });
+      }
       if (!shared.votes || typeof shared.votes !== 'object') shared.votes = {};
     }
   } catch(e) { toast('Keine Verbindung – offline Modus'); }
@@ -495,8 +516,11 @@ async function addDish() {
 
 async function deleteDish(id) {
   shared.dishes = shared.dishes.filter(d => d.id !== id);
-  shared.week = shared.week.map(w => w === id ? null : w);
-  Object.keys(shared.votes).forEach(k => { if (k.includes('_' + id)) delete shared.votes[k]; });
+  shared.week = shared.week.map(day => ({
+    options: (day.options || []).filter(oid => oid !== id),
+    final: day.final === id ? null : day.final
+  }));
+  Object.keys(shared.votes).forEach(k => { if (k.endsWith('_' + id)) delete shared.votes[k]; });
   await saveShared();
   renderAll();
 }
@@ -526,36 +550,55 @@ function renderWeek() {
 
   if (isAdmin) {
     let html = `<div class="week-actions">
-      <button class="btn-wk green" onclick="randomize()"><svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" stroke-linecap="round"/></svg>Zufällig</button>
       <button class="btn-wk" onclick="clearWeek()"><svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke-linecap="round"/></svg>Leeren</button>
     </div>`;
-    shared.week.forEach((mealId, i) => {
-      const meal = mealId != null ? shared.dishes.find(d => d.id === mealId) : null;
+    shared.week.forEach((day, i) => {
+      const options = (day.options || []).map(id => shared.dishes.find(d => d.id === id)).filter(Boolean);
+      const final = day.final != null ? shared.dishes.find(d => d.id === day.final) : null;
       const voteData = getVotesForDay(i);
+
+      const optionChips = options.map(d => {
+        const votes = voteData.find(v => v.dishId === d.id);
+        const voteCount = votes ? votes.voters.length : 0;
+        const isFinal = day.final === d.id;
+        return `<div class="option-chip ${isFinal ? 'final' : ''}">
+          <div class="option-chip-thumb">${d.img ? `<img src="${d.img}" alt="">` : plateIcon(14)}</div>
+          <span>${esc(d.name)}</span>
+          ${voteCount ? `<span class="option-vote-count">${voteCount}</span>` : ''}
+          ${isFinal ? `<span class="option-final-badge">✓</span>` : `<button class="option-set-final" onclick="setFinal(${i},${d.id})" title="Als Endergebnis festlegen">✓</button>`}
+          <button class="option-remove" onclick="removeOption(${i},${d.id})">×</button>
+        </div>`;
+      }).join('');
+
       html += `<div class="day-row">
         <div class="day-header">
           <div class="day-chip">${DAYS_S[i]}</div>
-          <div class="day-thumb-sm">${meal ? thumbSm(meal) : plateIcon(18)}</div>
-          <span class="${meal ? 'day-meal-name' : 'day-meal-none'}">${meal ? esc(meal.name) : 'kein Gericht'}</span>
-          <button class="btn-edit-day" onclick="openPicker(${i})"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4z" stroke-linecap="round"/></svg></button>
+          <span class="${options.length ? 'day-meal-name' : 'day-meal-none'}" style="font-size:13px">
+            ${options.length ? `${options.length} Option${options.length !== 1 ? 'en' : ''}` : 'keine Optionen'}
+          </span>
+          <button class="btn-edit-day" onclick="openPicker(${i})">
+            <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>
+          </button>
         </div>
-        ${voteData.length ? renderVotesArea(i, voteData, false) : ''}
+        ${options.length ? `<div class="options-area">${optionChips}</div>` : ''}
+        ${voteData.length && !options.length ? renderVotesArea(i, voteData, false) : ''}
       </div>`;
     });
     el.innerHTML = html;
   } else {
-    // Family member: vote on each day
     let html = '';
-    shared.week.forEach((mealId, i) => {
-      const meal = mealId != null ? shared.dishes.find(d => d.id === mealId) : null;
+    shared.week.forEach((day, i) => {
+      const options = (day.options || []).map(id => shared.dishes.find(d => d.id === id)).filter(Boolean);
+      const final = day.final != null ? shared.dishes.find(d => d.id === day.final) : null;
       const voteData = getVotesForDay(i);
       html += `<div class="day-row">
         <div class="day-header">
           <div class="day-chip">${DAYS_S[i]}</div>
-          <div class="day-thumb-sm">${meal ? thumbSm(meal) : plateIcon(18)}</div>
-          <span class="${meal ? 'day-meal-name' : 'day-meal-none'}">${meal ? esc(meal.name) : 'noch kein Gericht'}</span>
+          <div class="day-thumb-sm">${final ? thumbSm(final) : plateIcon(18)}</div>
+          <span class="${final ? 'day-meal-name' : 'day-meal-none'}">${final ? esc(final.name) : options.length ? 'Abstimmung läuft…' : 'noch keine Optionen'}</span>
         </div>
-        ${renderVotesArea(i, voteData, true)}
+        ${options.length && !final ? renderVotesArea(i, voteData, true, options) : ''}
+        ${final ? `<div class="votes-area"><span style="font-size:13px;color:var(--green-text)">✓ Festgelegt: ${esc(final.name)}</span></div>` : ''}
       </div>`;
     });
     el.innerHTML = html;
@@ -577,34 +620,33 @@ function getVotesForDay(dayIdx) {
   return result.sort((a,b) => b.voters.length - a.voters.length);
 }
 
-function renderVotesArea(dayIdx, voteData, showVoteBtn) {
+function renderVotesArea(dayIdx, voteData, showVoteBtn, limitedOptions) {
   if (!showVoteBtn && !voteData.length) return '';
-  const maxVotes = Math.max(1, ...voteData.map(v => v.voters.length));
 
-  // For member: show all dishes as votable options
   let items = '';
   if (showVoteBtn) {
-    // Build list of all dishes + existing votes merged
-    const allDishes = shared.dishes;
-    if (!allDishes.length) return `<div class="votes-area"><span class="no-meal-hint">Noch keine Gerichte vorhanden.</span></div>`;
-    const maxV = Math.max(1, ...allDishes.map(d => {
+    // Only show the admin-selected options
+    const dishList = limitedOptions || shared.dishes;
+    if (!dishList.length) return `<div class="votes-area"><span class="no-meal-hint">Noch keine Optionen für diesen Tag.</span></div>`;
+    const maxV = Math.max(1, ...dishList.map(d => {
       const key = `${dayIdx}_${d.id}`;
       return (shared.votes[key] || []).length;
     }));
-    items = allDishes.map(d => {
+    items = dishList.map(d => {
       const key = `${dayIdx}_${d.id}`;
       const voters = shared.votes[key] || [];
       const voted = voters.includes(userName);
       const pct = Math.round((voters.length / maxV) * 100);
       return `<div class="vote-option">
+        <div class="vote-thumb">${d.img ? `<img src="${d.img}" style="width:32px;height:32px;border-radius:6px;object-fit:cover" alt="">` : plateIcon(16)}</div>
         <span class="vote-dish-name">${esc(d.name)}</span>
         <div class="vote-bar-wrap"><div class="vote-bar" style="width:${pct}%"></div></div>
         <span class="vote-count">${voters.length}</span>
-        <button class="vote-cast-btn ${voted ? 'voted' : ''}" onclick="castVote(${dayIdx},${d.id},${voted})">${voted ? '✓ Meine Wahl' : 'Wählen'}</button>
+        <button class="vote-cast-btn ${voted ? 'voted' : ''}" onclick="castVote(${dayIdx},${d.id},${voted})">${voted ? '✓' : 'Wählen'}</button>
       </div>`;
     }).join('');
   } else {
-    if (!voteData.length) return '';
+    const maxVotes = Math.max(1, ...voteData.map(v => v.voters.length));
     items = voteData.map(v => {
       const pct = Math.round((v.voters.length / maxVotes) * 100);
       return `<div class="vote-option">
@@ -615,26 +657,24 @@ function renderVotesArea(dayIdx, voteData, showVoteBtn) {
       </div>`;
     }).join('');
   }
-
   return `<div class="votes-area"><div class="votes-title">Abstimmung</div>${items}</div>`;
 }
 
 async function castVote(dayIdx, dishId, alreadyVoted) {
+  // Don't allow voting if dish is not in day options
+  const options = shared.week[dayIdx].options || [];
+  if (!options.includes(dishId)) return;
+
   const key = `${dayIdx}_${dishId}`;
   if (!shared.votes[key]) shared.votes[key] = [];
 
   if (alreadyVoted) {
-    // Remove vote
     shared.votes[key] = shared.votes[key].filter(n => n !== userName);
   } else {
-    // Remove any other vote for this day by this user
-    shared.week.forEach((_, i) => {
-      if (i === dayIdx) {
-        shared.dishes.forEach(d => {
-          const k = `${dayIdx}_${d.id}`;
-          if (shared.votes[k]) shared.votes[k] = shared.votes[k].filter(n => n !== userName);
-        });
-      }
+    // Remove previous vote for this day
+    options.forEach(id => {
+      const k = `${dayIdx}_${id}`;
+      if (shared.votes[k]) shared.votes[k] = shared.votes[k].filter(n => n !== userName);
     });
     shared.votes[key].push(userName);
   }
@@ -656,66 +696,104 @@ function renderResults() {
   }
 
   let html = '';
-  shared.week.forEach((mealId, i) => {
-    const voteData = getVotesForDay(i);
+  shared.week.forEach((day, i) => {
+    const options = (day.options || []).map(id => shared.dishes.find(d => d.id === id)).filter(Boolean);
+    const final = day.final != null ? shared.dishes.find(d => d.id === day.final) : null;
+    const voteData = getVotesForDay(i).filter(v => options.some(o => o.id === v.dishId));
     const maxV = Math.max(1, ...voteData.map(v => v.voters.length));
     const winner = voteData[0];
 
     html += `<div class="results-card">
       <div class="results-day-header">
         <div class="day-chip">${DAYS_S[i]}</div>
-        <span class="${winner && winner.voters.length ? 'winner-name' : 'winner-none'}">${winner && winner.voters.length ? esc(winner.dish.name) : 'Keine Stimmen'}</span>
-        ${winner && winner.voters.length ? `<span style="font-size:12px;color:var(--text-muted)">${winner.voters.length} Stimme${winner.voters.length !== 1 ? 'n' : ''}</span>` : ''}
+        ${final
+          ? `<span class="winner-name">✓ ${esc(final.name)}</span><span style="font-size:11px;background:var(--green-light);color:var(--green-text);padding:2px 7px;border-radius:10px">Festgelegt</span>`
+          : winner && winner.voters.length
+            ? `<span class="winner-name">${esc(winner.dish.name)}</span><span style="font-size:12px;color:var(--text-muted)">${winner.voters.length} Stimme${winner.voters.length !== 1 ? 'n' : ''}</span>`
+            : `<span class="winner-none">Keine Stimmen</span>`
+        }
       </div>
-      ${voteData.length ? `<div class="results-options">${voteData.map(v => {
-        const pct = Math.round((v.voters.length / maxV) * 100);
-        return `<div class="result-row">
-          <span class="result-name">${esc(v.dish.name)}</span>
-          <div class="result-bar-wrap"><div class="result-bar" style="width:${pct}%"></div></div>
-          <span class="result-count">${v.voters.length}</span>
+      ${options.length ? `<div class="results-options">${options.map(o => {
+        const v = voteData.find(x => x.dishId === o.id);
+        const cnt = v ? v.voters.length : 0;
+        const pct = Math.round((cnt / maxV) * 100);
+        const isFinal = day.final === o.id;
+        return `<div class="result-row" style="${isFinal ? 'font-weight:600' : ''}">
+          <span class="result-name">${isFinal ? '✓ ' : ''}${esc(o.name)}</span>
+          <div class="result-bar-wrap"><div class="result-bar" style="width:${pct}%;${isFinal ? 'background:var(--green)' : ''}"></div></div>
+          <span class="result-count">${cnt}</span>
         </div>`;
-      }).join('')}</div>` : `<div style="padding:10px 14px;font-size:13px;color:var(--text-hint);font-style:italic">Noch keine Abstimmungen</div>`}
+      }).join('')}</div>`
+      : `<div style="padding:10px 14px;font-size:13px;color:var(--text-hint);font-style:italic">Noch keine Optionen definiert</div>`}
     </div>`;
   });
   el.innerHTML = html;
 }
 
 // ===== ADMIN WEEK MGMT =====
-async function randomize() {
-  if (!shared.dishes.length) { toast('Keine Gerichte vorhanden'); return; }
-  const pool = [...shared.dishes].sort(() => Math.random() - .5);
-  shared.week = DAYS.map((_, i) => pool[i % pool.length].id);
+async function clearWeek() {
+  shared.week = Array(7).fill(null).map(() => ({options:[], final:null}));
+  shared.votes = {};
   await saveShared();
   renderAll();
 }
 
-async function clearWeek() {
-  shared.week = Array(7).fill(null);
+async function removeOption(dayIdx, dishId) {
+  shared.week[dayIdx].options = shared.week[dayIdx].options.filter(id => id !== dishId);
+  if (shared.week[dayIdx].final === dishId) shared.week[dayIdx].final = null;
+  // clear votes for this dish on this day
+  delete shared.votes[`${dayIdx}_${dishId}`];
   await saveShared();
   renderAll();
+}
+
+async function setFinal(dayIdx, dishId) {
+  shared.week[dayIdx].final = dishId;
+  await saveShared();
+  renderAll();
+  toast('Gericht festgelegt ✓');
 }
 
 function openPicker(dayIdx) {
   if (!isAdmin) return;
   pickerDay = dayIdx;
-  document.getElementById('picker-title').textContent = `${DAYS[dayIdx]} – Gericht wählen`;
-  const cur = shared.week[dayIdx];
-  const items = [{id:null,name:'Keins',img:null}, ...shared.dishes];
-  document.getElementById('picker-list').innerHTML = items.map(d => `
-    <div class="pick-item ${d.id === cur ? 'sel' : ''}" onclick="pickDish(${d.id})">
-      <div class="pick-thumb">${d.id ? (d.img ? `<img src="${d.img}" alt="">` : plateIcon(16)) : xIcon()}</div>
-      <span class="pick-name ${d.id === null ? 'none' : ''}">${esc(d.name)}</span>
-    </div>
-  `).join('');
+  const currentOptions = shared.week[dayIdx].options || [];
+  document.getElementById('picker-title').textContent = `${DAYS[dayIdx]} – Optionen wählen`;
+  document.getElementById('picker-list').innerHTML = shared.dishes.map(d => {
+    const selected = currentOptions.includes(d.id);
+    return `<div class="pick-item ${selected ? 'sel' : ''}" onclick="toggleOption(${d.id})">
+      <div class="pick-thumb">${d.img ? `<img src="${d.img}" alt="">` : plateIcon(16)}</div>
+      <span class="pick-name">${esc(d.name)}</span>
+      ${selected ? `<svg style="margin-left:auto;flex-shrink:0" width="18" height="18" viewBox="0 0 24 24" stroke="var(--green)" stroke-width="2.5" fill="none"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
+    </div>`;
+  }).join('');
   document.getElementById('picker-overlay').classList.add('open');
   document.body.style.overflow = 'hidden';
 }
 
-async function pickDish(id) {
-  shared.week[pickerDay] = id;
+async function toggleOption(dishId) {
+  const options = shared.week[pickerDay].options || [];
+  const idx = options.indexOf(dishId);
+  if (idx === -1) {
+    options.push(dishId);
+  } else {
+    options.splice(idx, 1);
+    if (shared.week[pickerDay].final === dishId) shared.week[pickerDay].final = null;
+    delete shared.votes[`${pickerDay}_${dishId}`];
+  }
+  shared.week[pickerDay].options = options;
   await saveShared();
-  renderAll();
-  closePicker();
+  // re-render picker list in place
+  const currentOptions = shared.week[pickerDay].options;
+  document.getElementById('picker-list').innerHTML = shared.dishes.map(d => {
+    const selected = currentOptions.includes(d.id);
+    return `<div class="pick-item ${selected ? 'sel' : ''}" onclick="toggleOption(${d.id})">
+      <div class="pick-thumb">${d.img ? `<img src="${d.img}" alt="">` : plateIcon(16)}</div>
+      <span class="pick-name">${esc(d.name)}</span>
+      ${selected ? `<svg style="margin-left:auto;flex-shrink:0" width="18" height="18" viewBox="0 0 24 24" stroke="var(--green)" stroke-width="2.5" fill="none"><path d="M20 6L9 17l-5-5" stroke-linecap="round" stroke-linejoin="round"/></svg>` : ''}
+    </div>`;
+  }).join('');
+  renderWeek();
 }
 
 function closePicker() {
