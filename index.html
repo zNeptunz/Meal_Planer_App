@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Meal Planner">
+<meta name="description" content="Gerichte verwalten und Wochenplan erstellen">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Meal Planner</title>
+<style>
+:root {
+  --bg: #f7f6f3;
+  --surface: #ffffff;
+  --surface2: #f0efe9;
+  --border: rgba(0,0,0,0.1);
+  --border-strong: rgba(0,0,0,0.2);
+  --text: #1a1a18;
+  --text-muted: #6b6b65;
+  --text-hint: #a8a89f;
+  --accent: #3d6b4f;
+  --accent-light: #e8f2eb;
+  --accent-text: #2a4d38;
+  --danger: #c0392b;
+  --danger-light: #fcecea;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110;
+    --surface: #1c1c1a;
+    --surface2: #242422;
+    --border: rgba(255,255,255,0.1);
+    --border-strong: rgba(255,255,255,0.2);
+    --text: #f0efe9;
+    --text-muted: #9b9b92;
+    --text-hint: #5a5a54;
+    --accent: #5a9b72;
+    --accent-light: #1a2e20;
+    --accent-text: #8ec4a0;
+    --danger: #e05c4b;
+    --danger-light: #2e1512;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overscroll-behavior:none}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  max-width:520px;
+  margin:0 auto;
+  position:relative;
+}
+
+/* Header */
+.header{
+  padding:calc(var(--safe-top) + 18px) 20px 16px;
+  background:var(--surface);
+  border-bottom:0.5px solid var(--border);
+  position:sticky;top:0;z-index:50;
+}
+.header-inner{display:flex;align-items:center;gap:10px}
+.header-icon{
+  width:36px;height:36px;background:var(--accent);border-radius:10px;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.header-icon svg{width:20px;height:20px;fill:white}
+.header h1{font-size:18px;font-weight:600;letter-spacing:-0.3px}
+.header p{font-size:12px;color:var(--text-muted);margin-top:1px}
+
+/* Tabs */
+.tabs{
+  display:flex;background:var(--surface);
+  border-bottom:0.5px solid var(--border);
+  position:sticky;top:calc(var(--safe-top) + 72px);z-index:40;
+}
+.tab{
+  flex:1;padding:13px 8px;font-size:14px;font-weight:400;
+  color:var(--text-muted);border:none;background:none;cursor:pointer;
+  border-bottom:2.5px solid transparent;transition:all .18s;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.tab.active{color:var(--accent);font-weight:600;border-bottom-color:var(--accent)}
+
+/* Sections */
+.section{display:none;padding:18px 16px 100px}
+.section.active{display:block}
+
+/* Add bar */
+.add-area{
+  background:var(--surface);border:0.5px solid var(--border);
+  border-radius:var(--radius);padding:16px;margin-bottom:16px;
+}
+.add-area label{font-size:12px;font-weight:600;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px}
+.input-row{display:flex;gap:8px}
+.input-row input[type=text]{
+  flex:1;padding:11px 14px;font-size:15px;border:0.5px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--bg);color:var(--text);
+  outline:none;transition:border-color .15s;
+}
+.input-row input[type=text]:focus{border-color:var(--accent)}
+.btn-add{
+  width:44px;height:44px;background:var(--accent);border:none;
+  border-radius:var(--radius-sm);cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  transition:opacity .15s;
+}
+.btn-add:active{opacity:.75}
+.btn-add svg{width:22px;height:22px;stroke:white;stroke-width:2.5;fill:none}
+
+.img-row{margin-top:12px;display:flex;align-items:center;gap:12px}
+.img-label-btn{
+  flex:1;padding:10px 14px;border:0.5px dashed var(--border-strong);
+  border-radius:var(--radius-sm);background:none;color:var(--text-muted);
+  font-size:13px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:8px;
+  transition:background .15s;
+}
+.img-label-btn:hover{background:var(--surface2)}
+.img-label-btn svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.8;fill:none;flex-shrink:0}
+#img-preview{display:none}
+#preview-img{width:44px;height:44px;border-radius:8px;object-fit:cover;border:0.5px solid var(--border)}
+
+/* Dish grid */
+.dish-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.dish-card{
+  background:var(--surface);border:0.5px solid var(--border);
+  border-radius:var(--radius);overflow:hidden;position:relative;
+  transition:transform .12s;
+}
+.dish-card:active{transform:scale(.97)}
+.dish-thumb{
+  width:100%;height:90px;background:var(--surface2);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+.dish-thumb img{width:100%;height:90px;object-fit:cover;display:block}
+.dish-thumb svg{width:32px;height:32px;stroke:var(--text-hint);stroke-width:1.5;fill:none}
+.dish-name{padding:9px 10px;font-size:13px;font-weight:500;color:var(--text);line-height:1.3}
+.dish-del{
+  position:absolute;top:6px;right:6px;
+  background:rgba(0,0,0,.55);border:none;color:white;
+  border-radius:50%;width:24px;height:24px;font-size:16px;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  opacity:0;transition:opacity .15s;
+}
+.dish-card:hover .dish-del{opacity:1}
+.dish-del svg{width:14px;height:14px;stroke:white;stroke-width:2.5;fill:none}
+
+/* Empty state */
+.empty-state{text-align:center;padding:48px 16px;color:var(--text-muted)}
+.empty-state svg{width:48px;height:48px;stroke:var(--text-hint);stroke-width:1.2;fill:none;margin-bottom:12px}
+.empty-state p{font-size:15px;font-weight:500;margin-bottom:6px;color:var(--text)}
+.empty-state span{font-size:13px}
+
+/* Week plan */
+.week-actions{display:flex;gap:8px;margin-bottom:16px}
+.btn-week{
+  flex:1;padding:11px 14px;border:0.5px solid var(--border);
+  border-radius:var(--radius-sm);background:var(--surface);color:var(--text);
+  font-size:14px;font-weight:500;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+  transition:background .15s;
+}
+.btn-week:active{background:var(--surface2)}
+.btn-week.primary{background:var(--accent);color:white;border-color:transparent}
+.btn-week.primary:active{opacity:.8}
+.btn-week svg{width:16px;height:16px;stroke:currentColor;stroke-width:2;fill:none}
+
+.week-list{display:flex;flex-direction:column;gap:8px}
+.day-card{
+  background:var(--surface);border:0.5px solid var(--border);
+  border-radius:var(--radius);padding:12px 14px;
+  display:flex;align-items:center;gap:12px;
+  transition:background .12s;
+}
+.day-chip{
+  font-size:12px;font-weight:700;color:var(--accent-text);
+  background:var(--accent-light);padding:4px 8px;
+  border-radius:6px;min-width:34px;text-align:center;flex-shrink:0;
+}
+.day-thumb-sm{
+  width:42px;height:42px;border-radius:8px;background:var(--surface2);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;
+}
+.day-thumb-sm img{width:42px;height:42px;object-fit:cover;display:block}
+.day-thumb-sm svg{width:20px;height:20px;stroke:var(--text-hint);stroke-width:1.5;fill:none}
+.day-meal-name{flex:1;font-size:15px;color:var(--text)}
+.day-meal-name.none{color:var(--text-hint);font-style:italic;font-size:13px}
+.btn-edit{
+  width:34px;height:34px;border:0.5px solid var(--border);
+  border-radius:8px;background:none;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;transition:background .12s;
+}
+.btn-edit:active{background:var(--surface2)}
+.btn-edit svg{width:16px;height:16px;stroke:var(--text-muted);stroke-width:2;fill:none}
+
+/* Bottom nav hint */
+.no-dishes-hint{
+  background:var(--accent-light);border:0.5px solid var(--accent);
+  border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:14px;
+  font-size:13px;color:var(--accent-text);display:flex;align-items:center;gap:8px;
+}
+.no-dishes-hint svg{width:16px;height:16px;stroke:currentColor;stroke-width:2;fill:none;flex-shrink:0}
+
+/* Picker sheet */
+.overlay{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);
+  z-index:200;align-items:flex-end;justify-content:center;
+  backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);
+}
+.overlay.open{display:flex}
+.sheet{
+  background:var(--surface);border-radius:24px 24px 0 0;
+  padding:16px 16px calc(var(--safe-bottom) + 16px);
+  width:100%;max-width:520px;max-height:72vh;
+  display:flex;flex-direction:column;
+  animation:slideUp .22s ease-out;
+}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-handle{
+  width:40px;height:4px;background:var(--border-strong);
+  border-radius:2px;margin:0 auto 16px;
+}
+.sheet-title{font-size:16px;font-weight:600;margin-bottom:14px;padding:0 4px}
+.sheet-list{overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:6px}
+.picker-item{
+  display:flex;align-items:center;gap:12px;padding:10px 12px;
+  border:0.5px solid var(--border);border-radius:var(--radius-sm);
+  cursor:pointer;transition:background .12s;
+}
+.picker-item:active{background:var(--surface2)}
+.picker-item.selected{border-color:var(--accent);background:var(--accent-light)}
+.picker-thumb-sm{
+  width:38px;height:38px;border-radius:7px;background:var(--surface2);
+  display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;
+}
+.picker-thumb-sm img{width:38px;height:38px;object-fit:cover}
+.picker-thumb-sm svg{width:18px;height:18px;stroke:var(--text-hint);stroke-width:1.5;fill:none}
+.picker-name{font-size:14px;color:var(--text);font-weight:400}
+.picker-name.none-opt{color:var(--text-muted);font-style:italic}
+.btn-cancel{
+  margin-top:10px;padding:13px;border:0.5px solid var(--border);
+  border-radius:var(--radius-sm);background:none;color:var(--danger);
+  font-size:15px;font-weight:500;cursor:pointer;
+  transition:background .12s;
+}
+.btn-cancel:active{background:var(--danger-light)}
+
+/* Dish count badge */
+.count-badge{
+  font-size:11px;background:var(--accent-light);color:var(--accent-text);
+  padding:2px 8px;border-radius:20px;margin-left:4px;font-weight:600;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="header-icon">
+      <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/><path d="M12 2a10 10 0 100 20A10 10 0 0012 2z" fill="none"/><circle cx="12" cy="12" r="3"/><path d="M3 12h3M18 12h3M12 3v3M12 18v3" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    </div>
+    <div>
+      <h1>Meal Planner</h1>
+      <p>Wochenplan & Gerichte</p>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" id="tab-btn-dishes" onclick="switchTab('dishes')">
+    <svg width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M8 12h8M12 8v8" stroke-linecap="round"/></svg>
+    Gerichte<span class="count-badge" id="dish-count">0</span>
+  </button>
+  <button class="tab" id="tab-btn-week" onclick="switchTab('week')">
+    <svg width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18" stroke-linecap="round"/></svg>
+    Wochenplan
+  </button>
+</div>
+
+<!-- GERICHTE TAB -->
+<div class="section active" id="tab-dishes">
+  <div class="add-area">
+    <label>Neues Gericht</label>
+    <div class="input-row">
+      <input type="text" id="dish-name-input" placeholder="z.B. Spaghetti Bolognese" onkeydown="if(event.key==='Enter')addDish()">
+      <button class="btn-add" onclick="addDish()" aria-label="Hinzufügen">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="img-row">
+      <button class="img-label-btn" onclick="document.getElementById('dish-img-input').click()">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        <span id="img-btn-text">Foto hinzufügen (optional)</span>
+      </button>
+      <div id="img-preview">
+        <img id="preview-img" alt="Vorschau">
+      </div>
+      <input type="file" accept="image/*" id="dish-img-input" style="display:none" onchange="previewImg(this)">
+    </div>
+  </div>
+
+  <div id="dish-grid" class="dish-grid"></div>
+
+  <div id="dishes-empty" class="empty-state">
+    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <p>Noch keine Gerichte</p>
+    <span>Füge dein erstes Gericht oben hinzu</span>
+  </div>
+</div>
+
+<!-- WOCHENPLAN TAB -->
+<div class="section" id="tab-week">
+  <div id="week-nodishes" class="no-dishes-hint" style="display:none">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01" stroke-linecap="round"/></svg>
+    Füge zuerst Gerichte auf dem Gerichte-Tab hinzu.
+  </div>
+  <div class="week-actions">
+    <button class="btn-week primary" onclick="randomizePlan()">
+      <svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Zufällig
+    </button>
+    <button class="btn-week" onclick="clearPlan()">
+      <svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Leeren
+    </button>
+  </div>
+  <div class="week-list" id="week-list"></div>
+</div>
+
+<!-- PICKER SHEET -->
+<div class="overlay" id="picker-overlay" onclick="overlayClick(event)">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title" id="sheet-title">Gericht wählen</div>
+    <div class="sheet-list" id="sheet-list"></div>
+    <button class="btn-cancel" onclick="closePicker()">Abbrechen</button>
+  </div>
+</div>
+
+<script>
+const DAYS = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
+const DAYS_SHORT = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+
+let dishes = [];
+let weekPlan = [null,null,null,null,null,null,null];
+let pickerDay = -1;
+let pendingImg = null;
+
+// --- Storage ---
+function loadData() {
+  try {
+    const d = localStorage.getItem('mp2_dishes');
+    const w = localStorage.getItem('mp2_week');
+    if (d) dishes = JSON.parse(d);
+    if (w) weekPlan = JSON.parse(w);
+  } catch(e) {}
+}
+function saveData() {
+  try {
+    localStorage.setItem('mp2_dishes', JSON.stringify(dishes));
+    localStorage.setItem('mp2_week', JSON.stringify(weekPlan));
+  } catch(e) {}
+}
+
+// --- Image ---
+function previewImg(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    pendingImg = e.target.result;
+    document.getElementById('img-preview').style.display = 'block';
+    document.getElementById('preview-img').src = pendingImg;
+    document.getElementById('img-btn-text').textContent = 'Foto gewählt ✓';
+  };
+  reader.readAsDataURL(file);
+}
+
+function resetImgInput() {
+  pendingImg = null;
+  document.getElementById('dish-img-input').value = '';
+  document.getElementById('img-preview').style.display = 'none';
+  document.getElementById('img-btn-text').textContent = 'Foto hinzufügen (optional)';
+}
+
+// --- Add dish ---
+function addDish() {
+  const inp = document.getElementById('dish-name-input');
+  const name = inp.value.trim();
+  if (!name) { inp.focus(); return; }
+  dishes.push({ id: Date.now(), name, img: pendingImg || null });
+  saveData();
+  inp.value = '';
+  resetImgInput();
+  renderDishes();
+}
+
+function deleteDish(id) {
+  dishes = dishes.filter(d => d.id !== id);
+  weekPlan = weekPlan.map(w => w === id ? null : w);
+  saveData();
+  renderDishes();
+  renderWeek();
+}
+
+// --- Render dishes ---
+function thumbHTML(dish, size = 90) {
+  if (dish && dish.img) {
+    return `<img src="${dish.img}" alt="${dish.name}" loading="lazy">`;
+  }
+  return `<svg viewBox="0 0 24 24" width="${size < 50 ? 18 : 32}" height="${size < 50 ? 18 : 32}" stroke="var(--text-hint)" stroke-width="1.5" fill="none"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zM6 1v3M10 1v3M14 1v3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function renderDishes() {
+  const grid = document.getElementById('dish-grid');
+  const empty = document.getElementById('dishes-empty');
+  document.getElementById('dish-count').textContent = dishes.length;
+
+  if (dishes.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = dishes.map(d => `
+    <div class="dish-card">
+      <div class="dish-thumb">${thumbHTML(d, 90)}</div>
+      <div class="dish-name">${escHTML(d.name)}</div>
+      <button class="dish-del" onclick="deleteDish(${d.id})" aria-label="${escHTML(d.name)} löschen">
+        <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  `).join('');
+}
+
+// --- Week plan ---
+function randomizePlan() {
+  if (dishes.length === 0) return;
+  const pool = [...dishes];
+  if (pool.length >= 7) {
+    const shuffled = pool.sort(() => Math.random() - 0.5);
+    weekPlan = shuffled.slice(0, 7).map(d => d.id);
+  } else {
+    weekPlan = DAYS.map(() => dishes[Math.floor(Math.random() * dishes.length)].id);
+  }
+  saveData();
+  renderWeek();
+}
+
+function clearPlan() {
+  weekPlan = [null,null,null,null,null,null,null];
+  saveData();
+  renderWeek();
+}
+
+function renderWeek() {
+  const list = document.getElementById('week-list');
+  const hint = document.getElementById('week-nodishes');
+  hint.style.display = dishes.length === 0 ? 'block' : 'none';
+
+  list.innerHTML = DAYS.map((day, i) => {
+    const meal = weekPlan[i] != null ? dishes.find(d => d.id === weekPlan[i]) : null;
+    return `
+      <div class="day-card">
+        <div class="day-chip">${DAYS_SHORT[i]}</div>
+        <div class="day-thumb-sm">${meal ? thumbHTML(meal, 42) : `<svg viewBox="0 0 24 24" width="20" height="20" stroke="var(--text-hint)" stroke-width="1.5" fill="none"><path d="M18 8h1a4 4 0 010 8h-1M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8zM6 1v3M10 1v3M14 1v3" stroke-linecap="round"/></svg>`}</div>
+        <span class="${meal ? 'day-meal-name' : 'day-meal-name none'}">${meal ? escHTML(meal.name) : 'kein Gericht'}</span>
+        <button class="btn-edit" onclick="openPicker(${i})" aria-label="${day} bearbeiten">
+          <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+// --- Picker ---
+function openPicker(dayIdx) {
+  pickerDay = dayIdx;
+  document.getElementById('sheet-title').textContent = `${DAYS[dayIdx]} – Gericht wählen`;
+  const list = document.getElementById('sheet-list');
+  const current = weekPlan[dayIdx];
+  const items = [{id: null, name: 'Keins', img: null}, ...dishes];
+  list.innerHTML = items.map(d => `
+    <div class="picker-item ${d.id === current ? 'selected' : ''}" onclick="pickDish(${d.id})">
+      <div class="picker-thumb-sm">${d.id ? thumbHTML(d, 38) : `<svg viewBox="0 0 24 24" width="18" height="18" stroke="var(--text-hint)" stroke-width="1.5" fill="none"><path d="M18 6L6 18M6 6l12 12" stroke-linecap="round"/></svg>`}</div>
+      <span class="picker-name ${d.id === null ? 'none-opt' : ''}">${escHTML(d.name)}</span>
+    </div>
+  `).join('');
+  document.getElementById('picker-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function pickDish(id) {
+  weekPlan[pickerDay] = id;
+  saveData();
+  renderWeek();
+  closePicker();
+}
+
+function closePicker() {
+  document.getElementById('picker-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function overlayClick(e) {
+  if (e.target === document.getElementById('picker-overlay')) closePicker();
+}
+
+// --- Tabs ---
+function switchTab(tab) {
+  ['dishes','week'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+    document.getElementById('tab-btn-' + t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'week') renderWeek();
+}
+
+// --- Utils ---
+function escHTML(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// --- Init ---
+loadData();
+renderDishes();
+renderWeek();
+
+// Service Worker
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+// Swipe to close picker
+let startY = 0;
+document.querySelector('.sheet').addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, {passive:true});
+document.querySelector('.sheet').addEventListener('touchmove', e => {
+  if (e.touches[0].clientY - startY > 80) closePicker();
+}, {passive:true});
+</script>
+</body>
+</html>
