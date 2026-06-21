@@ -594,20 +594,26 @@ async function migrateIfNeeded() {
   return true;
 }
 
-async function loadShared() {
+let lastDataHash = '';
+async function loadShared(forceRender = true) {
   // Load from localStorage cache first for instant startup
   try {
     const cached = localStorage.getItem('fp_cache_' + familyCode);
-    if (cached) normalizeShared(JSON.parse(cached));
+    if (cached) { normalizeShared(JSON.parse(cached)); lastDataHash = cached; }
   } catch(e) {}
   // Then fetch from Firebase in background
   try {
     const data = await fbGet(familyPath());
     if (data) {
+      const newHash = JSON.stringify(data);
+      const changed = newHash !== lastDataHash;
       normalizeShared(data);
-      localStorage.setItem('fp_cache_' + familyCode, JSON.stringify(data));
+      localStorage.setItem('fp_cache_' + familyCode, newHash);
+      lastDataHash = newHash;
+      return changed;
     }
   } catch(e) { toast('Offline – zeige gespeicherte Daten'); }
+  return forceRender;
 }
 async function saveShared() {
   try {
@@ -723,9 +729,27 @@ async function startApp() {
   updateKwLabel();
   await loadShared();
   renderAll();
-  setInterval(async () => { await loadShared(); renderAll(); }, 15000);
+  startSmartPolling();
 }
 async function refresh() { await loadShared(); renderAll(); toast('Aktualisiert'); }
+
+let pollTimer = null;
+function startSmartPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    // Skip polling when tab/app is in background — saves requests & battery
+    if (document.hidden) return;
+    const changed = await loadShared(false);
+    if (changed) renderAll(); // only re-render when data actually changed
+  }, 15000);
+}
+// When app comes back to foreground, refresh immediately
+document.addEventListener('visibilitychange', async () => {
+  if (!document.hidden && familyCode) {
+    const changed = await loadShared(false);
+    if (changed) renderAll();
+  }
+});
 
 function updateKwLabel() {
   const wk = activeWeekKey();
