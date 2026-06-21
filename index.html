@@ -46,7 +46,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .admin-link{color:var(--green);cursor:pointer;text-decoration:underline;background:none;border:none;font:inherit}
 
 /* ADMIN PIN */
-#admin-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:900;align-items:center;justify-content:center;padding:24px}
+#admin-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1001;align-items:center;justify-content:center;padding:24px}
 #admin-overlay.open{display:flex}
 .pin-box{background:var(--surface);border-radius:var(--r);padding:28px 24px;width:100%;max-width:340px}
 .pin-box h2{font-size:18px;font-weight:600;margin-bottom:6px}
@@ -533,7 +533,14 @@ async function fbGet(path) {
   return r.ok ? r.json() : null;
 }
 async function fbSet(path, val) {
-  await fetch(`${FB_BASE}/${path}.json`, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(val) });
+  const url = `${FB_BASE}/${path}.json`;
+  const r = await fetch(url, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(val) });
+  if (!r.ok) {
+    const txt = await r.text();
+    console.error('[fbSet] FAILED', r.status, txt);
+    toast('Speichern fehlgeschlagen: ' + r.status);
+  }
+  return r.ok;
 }
 
 function normalizeShared(data) {
@@ -618,6 +625,11 @@ function enterApp() {
   userName = n; familyCode = c;
   localStorage.setItem('fp_username', n);
   localStorage.setItem('fp_familycode', c);
+  // If admin banner is active, show PIN dialog first
+  if (document.getElementById('admin-warning').style.display === 'flex') {
+    showAdminPin();
+    return;
+  }
   startApp();
 }
 function showAdminPin() {
@@ -666,23 +678,31 @@ async function startApp() {
     try {
       const cached = localStorage.getItem('fp_cache_' + familyCode);
       if (!cached) {
-        // No local cache — check Firebase
         const existing = await fbGet(familyPath());
         if (!existing || !Array.isArray(existing.dishes)) {
-          // Code doesn't exist
           document.getElementById('splash').style.display = 'flex';
           toast('Familiencode nicht gefunden. Frag deinen Admin.');
           return;
         }
       }
     } catch(e) {
-      // Offline — allow if cached
       const cached = localStorage.getItem('fp_cache_' + familyCode);
       if (!cached) {
         document.getElementById('splash').style.display = 'flex';
         toast('Keine Verbindung und kein gespeicherter Code gefunden.');
         return;
       }
+    }
+  } else {
+    // Admin: always create family if null or empty
+    try {
+      const existing = await fbGet(familyPath());
+      if (existing === null || existing === undefined || !existing.dishes) {
+        await fbSet(familyPath(), { dishes:[], weeks:{}, votes:{}, wishes:[] });
+        toast('Neuer Familienbereich "' + familyCode + '" erstellt ✓');
+      }
+    } catch(e) {
+      console.error('Create family error:', e);
     }
   }
 
@@ -1269,12 +1289,22 @@ if (window.location.hostname === 'localhost' || window.location.hostname === '12
   document.getElementById('dev-banner').style.display = 'block';
 }
 
-// Swipe to close sheet
+// Swipe to close sheet — only when scrolled to the very top, deliberate swipe
 document.querySelectorAll('.sheet').forEach(s => {
-  let ty0=0;
-  s.addEventListener('touchstart', e => ty0=e.touches[0].clientY, {passive:true});
-  s.addEventListener('touchmove', e => {
-    if (e.touches[0].clientY - ty0 > 80) { s.closest('.overlay')?.classList.remove('open'); document.body.style.overflow=''; }
+  let ty0 = 0;
+  let startedAtTop = false;
+  const scrollEl = s.querySelector('.sheet-list') || s;
+  s.addEventListener('touchstart', e => {
+    ty0 = e.touches[0].clientY;
+    startedAtTop = scrollEl.scrollTop <= 0;
+  }, {passive:true});
+  s.addEventListener('touchend', e => {
+    if (!startedAtTop) return;
+    const dy = e.changedTouches[0].clientY - ty0;
+    if (dy > 140 && scrollEl.scrollTop <= 0) {
+      s.closest('.overlay')?.classList.remove('open');
+      document.body.style.overflow = '';
+    }
   }, {passive:true});
 });
 
